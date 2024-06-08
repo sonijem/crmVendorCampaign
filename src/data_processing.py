@@ -55,6 +55,13 @@ def process_campaign_data(spark, input_path, output_path):
     campaigns_df = spark.read.json(campaigns_file)
     engagement_df = spark.read.json(engagement_file)
 
+    logger.info(f'campaigns_df: {campaigns_df}')
+    logger.info(f'engagement_df: {engagement_df}')
+
+    logger.info(f'Ensure DataFrame schema is as expected')
+    if '_corrupt_record' in campaigns_df.columns or '_corrupt_record' in engagement_df.columns:
+        raise ValueError("Input JSON files contain corrupt records.")
+
     logger.info(f'extract campaign information')
     campaigns_info = campaigns_df.select(
         col("id").alias("campaign_id"),
