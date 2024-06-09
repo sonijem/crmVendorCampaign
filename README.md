@@ -28,7 +28,7 @@ the end user
 ### Implementation
 - Project follows standard pyspark project structure where src/main.py calls an application
 - Implemented BDD (Behavioural Driven Development) testing.
-- To test locally execute
+- To test locally create virtual env using requirements file and execute
 
 ```
 pytest --html==report  
