@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, avg, rank, count
+from pyspark.sql.functions import col, count, expr, size, explode
 from pyspark.sql.window import Window
 from logging_config import logger
 import glob
@@ -48,15 +48,15 @@ def process_campaign_data(spark, input_path, output_path):
     engagement_pattern = "supplier_file_engagement_*.json"
     
     logger.info('Read campaigns and engagements file from S3')
-    campaigns_file = find_latest_file(f"{input_path}/daily_files", campaigns_pattern)
-    engagement_file = find_latest_file(f"{input_path}/daily_files", engagement_pattern)
-    
-    logger.info(f'load data into df')
-    campaigns_df = spark.read.json(campaigns_file)
-    engagement_df = spark.read.json(engagement_file)
+    campaigns_file = find_latest_file(os.path.join(input_path, "daily_files"), campaigns_pattern)
+    engagement_file = find_latest_file(os.path.join(input_path, "daily_files"), engagement_pattern)
 
-    logger.info(f'campaigns_df: {campaigns_df}')
-    logger.info(f'engagement_df: {engagement_df}')
+    logger.info(f'load data into campaigns_file: {campaigns_file}')
+    campaigns_df = spark.read.option("multiline", "true").json(campaigns_file)
+    engagement_df = spark.read.option("multiline", "true").json(engagement_file)
+
+    logger.info(f'campaigns_df: {campaigns_df.show()}')
+    logger.info(f'engagement_df: {engagement_df.show()}')
 
     logger.info(f'Ensure DataFrame schema is as expected')
     if '_corrupt_record' in campaigns_df.columns or '_corrupt_record' in engagement_df.columns:
@@ -66,19 +66,25 @@ def process_campaign_data(spark, input_path, output_path):
     campaigns_info = campaigns_df.select(
         col("id").alias("campaign_id"),
         col("details.name").alias("campaign_name"),
-        col("steps").alias("steps"),
+        explode(col("steps")).alias("step"),
         col("details.schedule")[0].alias("start_date"),
         col("details.schedule")[1].alias("end_date")
+    ).select(
+        col("campaign_id"),
+        col("campaign_name"),
+        col("step.templateId").alias("template_id"),
+        col("start_date"),
+        col("end_date")
     )
 
     logger.info(f'Ensure all steps are delivered at least once')
     engagement_df = engagement_df.withColumn("action", col("action").alias("event"))
 
     logger.info(f'Handle duplicates (at-least-once delivery)')
-    engagement_df = engagement_df.dropDuplicates(["userId", "eventTimestamp", "action"])
+    engagement_df = engagement_df.dropDuplicates(["userId", "eventTimestamp", "action", "campaign"])
 
     logger.info(f'Calculate number of steps for each campaign')
-    steps_count = campaigns_info.withColumn("number_of_steps", col("steps").size)
+    steps_count = campaigns_info.groupBy("campaign_id", "campaign_name").agg(count("template_id").alias("number_of_steps"))
 
     logger.info(f'Calculate completion percentage')
     delivered_events = engagement_df.filter(col("action") == "MESSAGE_DELIVERED")
@@ -92,7 +98,7 @@ def process_campaign_data(spark, input_path, output_path):
     engagement_report = completion_df.select(
         col("campaign_name"),
         col("average_percent_completion"),
-        rank().over(window_spec).alias("rank")
+        expr("rank() over (order by average_percent_completion desc)").alias("rank")
     )
     logger.info(f'engagement_report: {engagement_report}')
 
@@ -100,7 +106,7 @@ def process_campaign_data(spark, input_path, output_path):
     campaign_overview = campaigns_info.select(
         col("campaign_id"),
         col("campaign_name"),
-        col("number_of_steps"),
+        col("template_id"),
         col("start_date"),
         col("end_date")
     )
