@@ -17,3 +17,18 @@ crm_campaign_20230101001500.json)
 - /internal - Can be used to store any internal state that is needed and is not exposed to
 the end user
 - Reports are to be stored in: /output/reports
+
+### Setup
+- This project requires following softwares/libraries that also include local testing
+1. Hadoop, winutils
+2. JAVA - 19
+3. Python- 3.10.11
+4. Spark
+
+### Implementation
+- Project follows standard pyspark project structure where src/main.py calls an application
+- Implemented BDD (Behavioural Driven Development) testing.
+- To test locally execute
+
+```
+pytest --html==report  
